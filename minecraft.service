@@ -1,0 +1,53 @@
+[Unit]
+Description=Minecraft Server Instance %i
+After=network.target local-fs.target
+
+[Service]
+WorkingDirectory=/var/lib/mp/minecraft/%i
+
+PrivateUsers=true
+
+User=mp
+Group=mp
+
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+Environment="MCMINMEM=512M" "MCMAXMEM=1024M" "SHUTDOWN_DELAY=30" "CONSOLE_FIFO=console.fifo"
+EnvironmentFile=-/var/lib/mp/minecraft/%i/systemd-env.conf
+
+ExecStartPre=/bin/sh -c 'if [ ! -p "${CONSOLE_FIFO}" ]; then mkfifo "${CONSOLE_FIFO}"; fi'
+ExecStart=/bin/sh -c 'exec /usr/bin/java \
+  -Xms${MCMINMEM} \
+  -Xmx${MCMAXMEM} \
+  -XX:+UseG1GC \
+  -Dcom.mojang.eula.agree=true \
+  -jar /var/lib/mp/minecraft/%i/Minecraft-server.jar \
+  --nogui < "${CONSOLE_FIFO}"'
+ExecStartPost=/usr/bin/dd bs=1 count=0 status=none if=/dev/null of="${CONSOLE_FIFO}"
+
+ExecReload=/bin/sh -c 'echo "reload" > "${CONSOLE_FIFO}"'
+
+ExecStop=/bin/bash -c 'if [ -z $MAINPID ]; then exit 0; fi;\
+\
+  echo "say Administrative SERVER STOP! Stopping in ${SHUTDOWN_DELAY}s" > "${CONSOLE_FIFO}";\
+  sleep ${SHUTDOWN_DELAY};\
+  echo "stop" > "${CONSOLE_FIFO}";\
+\
+  while [ true ]; do \
+    kill -n 0 $MAINPID;\
+    if [ $? -ne 0 ]; then exit 0; fi;\
+    sleep 1;\
+  done\
+'
+
+TimeoutStopSec=10min
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
